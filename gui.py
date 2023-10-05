@@ -192,7 +192,7 @@ class MainWindow(wx.Frame):
                 complete_filename = dlg.GetPaths()[0]
                 self.set_gui_state("open")
                 self.eng.excel_filename = complete_filename
-                self.txt_from.SetValue(1)
+                self.txt_from.SetValue(2)
                 self.txt_to.SetValue(self.eng.original_df.shape[0])
                 self.lbl_xls.SetLabel(complete_filename)
                 self.set_gui_state(States.IDLE)

@@ -110,15 +110,16 @@ class Scraper:
 
     def _set_excel_filename(self, excel):
         self._excel_filename = excel
-        self.original_df = pd.read_excel(excel)
+        self.original_df = pd.read_excel(excel)        
         totals_rows=self.original_df.shape[0]
         msg = self.original_df.shape
         logging.info(msg)
-        null_list = ["" for _ in range(totals_rows)]
         if "status" not in self.original_df:
-            self.original_df.insert(1, 'status', null_list)
-            self.original_df.insert(2, 'chosen_result', null_list)
-            self.original_df.insert(3, 'total_results', null_list)
+            print("did not find statsus")
+            self.original_df['status'] = ''
+            self.original_df['dissolved_date'] = ''
+            self.original_df['chosen_result'] = ''
+            self.original_df['total_results'] = ''
     excel_filename = property(_get_excel_filename, _set_excel_filename)
 
     def _get_download_folder(self):
@@ -134,7 +135,7 @@ class Scraper:
 
     def _get_company_object(self, index):
         """Instantiates a company objec ued by the scrapper object"""
-        return Company(name=self.original_df.iloc[0]['Owner Name'], df_index=index)
+        return Company(name=self.original_df.iloc[index]['Owner Name'], df_index=index)
 
     def _find_best_name(self, company_name, companies_list):
         company_name = company_name.lower()
@@ -171,11 +172,13 @@ class Scraper:
         table_rows = soup.find("div", class_="data_pannel").find("tbody").findAll("tr")
         for row in table_rows:
                 cells = row.findAll("td")
+                a = row.find("a")                
                 company_name = cells[0].getText().strip()
                 company_id = cells[1].getText().strip()
                 types = cells[2].getText().strip()
                 status = cells[5].getText().strip()
                 a_Company = Company(company_name)
+                a_Company.link = a['href']
                 a_Company.company_id = company_id
                 a_Company.status = status
                 a_Company.types = types
@@ -194,30 +197,26 @@ class Scraper:
         self.lock = Lock()
         self.processing_totals = stop-start+1
         # print(f"starting with {threading.active_count()} threads")
-        i = start
+        # cell row is 2, df row is 0. Subtract 2 
+        print(f"from gui:{start}/{stop}")
+        i = start -2
         while self.working:
-            print(f"processing row {i}")
-            self.current = i - start + 1
+            self.current = i + 1
             driver = self.browsers.get_one()
             self.companies[driver] =  self._get_company_object(i)
+            print(f"processing row {i} --> {self.companies[driver].name} {self.current}/{self.processing_totals}")
             # THREADING
             x = Thread(target=self.process_company, args=(driver,))
             threads.append(x)
-            x.start()
-            
+            x.start()            
             i += 1
-            if i == stop+1:
-                self.working = False
-            print("end of processing")
+            if i == stop-1:
+                self.working = False            
 
 
             # if the total number of threads is MAX, wait. None have finished yet. Else continue
             # while threading.active_count() >= self.browsers.threads + self.other_threads:
             while not self.browsers.free:
-            #     # print(f"No browsers are free {len(self.browsers.free)}/{len(self.browsers.drivers)}")
-            #     # print(f"Thread count is {threading.active_count()} >= "
-            #     #       f"{self.MAX_DOWN_THREADS+self.OTHER_THREADS}. "
-            #     #       f"Free drivers:{len(self.free_drivers)} .Sleeping and checking again...")
                 sleep(0.5)
         while active_count() > self.other_threads:
             # print(f"Waiting for all threads to finish {threading.active_count()-self.OTHER_THREADS}. Sleeping and checking again...")
@@ -230,13 +229,13 @@ class Scraper:
         msg = f"Download time per company: {(time2-time1)/(stop-start)}"
         logging.info(msg)
 
-    def process_company(self, the_driver):
-        msg = f"Searching for company {self.companies[the_driver].name}..."
+    def process_company(self, the_driver):                
         if self.results_for_company(the_driver):
             # Choose the best company out of the results
             totals = self.choose_company(the_driver)
             self.companies[the_driver].print()
             msg = "Saving..."
+            print(msg)
             logging.info(msg)
             self.save_company_to_excel(the_driver)
             print("Releasing browser ...\n-----------------------------------------------------------")
@@ -277,8 +276,7 @@ class Scraper:
         status = ""
         types = ""
         # Setting default company name
-        final_company_name = self.companies[the_driver].name
-        print(final_company_name)
+        final_company_name = self.companies[the_driver].name        
         try:
             # Get all the companies that the search page reported
             companies_list = self._get_all_companies(soup)
@@ -302,7 +300,6 @@ class Scraper:
                     id = companies_list[chosen_index].company_id
                     status = companies_list[chosen_index].status
                     types = companies_list[chosen_index].types
-
         except Exception as e:
             msg = f"Error 333:{self.companies[the_driver].name}, index:{self.companies[the_driver].df_index:04}, {e}"
             logging.error(msg)
@@ -313,14 +310,41 @@ class Scraper:
             self.companies[the_driver].total_results = totals
             self.companies[the_driver].status = status
             self.companies[the_driver].types = types
+            the_date = ""
+            if "dissolv" in status.lower():
+                 the_date = self.find_dissolved_date(the_driver, companies_list[chosen_index])
+            self.companies[the_driver].dissolved_date = the_date
+            print(f"Chosen company: {str(self.companies[the_driver])}")
             return totals
 
     def save_company_to_excel(self, the_driver):
-        msg = self.original_df.shape
-        logging.info(msg)
         i = self.companies[the_driver].df_index
         with self.lock:
+            print(self.original_df.dtypes)
+            print(f"Inside save function ({self._excel_filename}): {str(self.companies[the_driver])}")
             self.original_df.at[i, 'status'] = self.companies[the_driver].status
+            self.original_df.at[i, 'dissolved_date'] = self.companies[the_driver].dissolved_date
             self.original_df.at[i, 'chosen_result'] = self.companies[the_driver].name
-            self.original_df.at[i, 'total_results'] = self.companies[the_driver].total_results
+            self.original_df.at[i, 'total_results'] = self.companies[the_driver].total_results            
             self.original_df.to_excel(self._excel_filename, index=False)
+
+    def find_dissolved_date(self, the_driver, company):
+        date = ""
+        if company.link.startswith("/"):
+            domain_url = "https://ecorp.sos.ga.gov"
+        else:
+            domain_url = "https://ecorp.sos.ga.gov/"
+        the_driver.get("https://ecorp.sos.ga.gov/"+company.link)
+        try:
+            element = WebDriverWait(the_driver, 20).until(EC.presence_of_element_located((By.CLASS_NAME, "data_pannel")))
+        except Exception as error:
+            msg = f"Error for company: {self.companies[the_driver].name} --> {error}"
+
+        soup = BeautifulSoup(the_driver.page_source, "lxml")        
+        table_rows = soup.find("div", class_="data_pannel").find("tbody").findAll("tr")
+        for row in table_rows:
+            cells = row.findAll("td")
+            for index, cell in enumerate(cells):
+                if "dissolved date" in cell.getText().strip().lower():
+                    date =  cells[index+1].getText()
+        return date

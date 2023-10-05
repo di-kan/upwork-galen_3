@@ -95,19 +95,21 @@ class Company:
     def __init__(self, name, df_index=-1):
         self.df_index = df_index
         self.name = name
-
+        self.link = ""
         self.status = ""
         self.types = ""
         self.company_id = ""
         self.annual_report = None
         self.total_results = 0
         self.results_index = 0
+        self.dissolved_date = ""
 
+    def __str__(self):
+        return f"{self.name}|{self.total_results}|{self.status}|{self.dissolved_date}"
+    
     def print(self):
-        msg = f"{self.name}|{self.total_results}|{self.status}"
-        if self.annual_report:
-            msg += f"|{self.annual_report.filing_date}| {self.annual_report.pdf_url}"
-        # print(msg)
+        msg = f"{self.name}|{self.total_results}|{self.status}|{self.dissolved_date}"
+        print(msg)
 
     def keep_last_annual_report(self, all_filings):
         all_filings.sort(reverse=True)
